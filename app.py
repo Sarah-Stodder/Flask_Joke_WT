@@ -37,6 +37,14 @@ class User(db.Model):
     user_id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String)
     password = db.Column(db.String)
+    user_jokes = db.relationship(
+        "Joke",
+        secondary=joke_join,
+        backref="joke_join",
+        lazy="dynamic",
+        cascade ='all, delete-orphan',
+        single_parent=True
+        )
 
 
     def hash_password(self, original_password):
@@ -59,13 +67,22 @@ class User(db.Model):
 
     def to_dict(self):
         return {"user_id" : self.user_id, "email" : self.email}
+    
+    def make_joke(self,post_joke):
+        self.user_jokes.append(post_joke)
+        db.session.commit()
+
+    def remove_joke(self, jokes):
+        for joke in jokes:
+            self.user_jokes.remove(joke)
+            db.session.commit()
 
 
 class Joke (db.Model):
     joke_id= db.Column(db.Integer, primary_key=True)
     joke = db.Column(db.String)
     punchline = db.Column(db.String)
-    user_jokes = db.relationship("User", secondary= "joke_join", backref="joke_join", lazy="dynamic")
+    
 
 
     def save(self):
@@ -79,10 +96,9 @@ class Joke (db.Model):
     def from_dict(self,data):
         self.joke= data['joke']
         self.punchline = data['punchline']
-        self.user_id = data['user_id']
 
     def to_dict(self):
-        return {"joke":self.joke, "punchline" : self.punchline, "user_id" : self.user_id}
+        return {"joke":self.joke, "punchline" : self.punchline}
 
 
 #Routes
@@ -117,6 +133,9 @@ def edit_user(id):
 
 @app.delete('/user/<id>')
 def delete_user(id):
+    user = User.query.filter_by(user_id=id).first()
+    jokes = user.user_jokes.all()
+    user.remove_joke(jokes)
     User.query.filter_by(user_id=id).delete()
     db.session.commit()
     return make_response("it might have worked?", 200)
@@ -124,12 +143,14 @@ def delete_user(id):
 #Jokes
 
 
-@app.post('/joke') 
-def post_jokes(): 
+@app.post('/joke/<id>') 
+def post_jokes(id): 
+    user = User.query.filter_by(user_id=id).first()
     data = request.get_json()
     new_joke = Joke()
     new_joke.from_dict(data)
     new_joke.save() 
+    user.make_joke(new_joke)
     return make_response("success", 200)
 
 
@@ -169,3 +190,10 @@ def del_joke(id):
     Joke.query.filter_by(joke_id=id).delete()
     db.session.commit()
     return make_response("It might have worked?", 200)
+
+@app.get('/user/<id>/jokes')
+def get_users_jokes(id):
+   user= (User.query.filter_by(user_id=id)).first()
+   jokes = user.user_jokes.all()
+   return make_response(json.dumps([joke.to_dict() for joke in jokes]))
+
